@@ -161,7 +161,9 @@ class InventoryService
             $batch = ProductBatch::create([
                 ...$data,
                 'quantity_on_hand' => $data['quantity_received'],
-                'status' => ProductBatch::STATUS_AVAILABLE,
+                'status' => $data['expires_on'] <= now()->toDateString()
+                    ? ProductBatch::STATUS_EXPIRED
+                    : ProductBatch::STATUS_AVAILABLE,
                 'trace_code' => $this->newTraceCode(),
                 'batch_code' => $data['batch_code'] ?? $this->newBatchCode(),
             ]);

@@ -116,6 +116,41 @@ class FarmOperationsTest extends TestCase
             ->assertJsonMissingPath('short_deliveries');
     }
 
+    public function test_received_batches_get_correct_status_based_on_expiry_date(): void
+    {
+        $staff = $this->user('staff');
+        $product = Product::factory()->create();
+
+        $this->actingAs($staff, 'sanctum');
+
+        // Lo con han: phai o trang thai available.
+        $this->postJson("/api/admin/products/{$product->id}/batches", [
+            'quantity_received' => 10,
+            'harvested_on' => now()->subDays(2)->toDateString(),
+            'expires_on' => now()->addDays(5)->toDateString(),
+        ])
+            ->assertCreated()
+            ->assertJsonPath('status', ProductBatch::STATUS_AVAILABLE);
+
+        // Lo het han hom qua: phai o trang thai expired.
+        $this->postJson("/api/admin/products/{$product->id}/batches", [
+            'quantity_received' => 10,
+            'harvested_on' => now()->subDays(10)->toDateString(),
+            'expires_on' => now()->subDay()->toDateString(),
+        ])
+            ->assertCreated()
+            ->assertJsonPath('status', ProductBatch::STATUS_EXPIRED);
+
+        // Lo het han hom nay: phai o trang thai expired.
+        $this->postJson("/api/admin/products/{$product->id}/batches", [
+            'quantity_received' => 10,
+            'harvested_on' => now()->subDays(5)->toDateString(),
+            'expires_on' => now()->toDateString(),
+        ])
+            ->assertCreated()
+            ->assertJsonPath('status', ProductBatch::STATUS_EXPIRED);
+    }
+
     public function test_sales_handle_orders_but_cannot_create_batches_or_change_stock(): void
     {
         $sales = $this->user('sales');
