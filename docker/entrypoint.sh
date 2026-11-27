@@ -15,6 +15,13 @@ php artisan route:cache
 php artisan view:cache
 php artisan migrate --force
 
+# Optional one-off demo data: set SEED_DEMO=true, deploy once, then remove the variable.
+# WARNING: DemoSeeder creates admin@farm.local / staff / sales / khach accounts with the password "password".
+if [ "$SEED_DEMO" = "true" ]; then
+  php artisan db:seed --class=DemoSeeder --force
+  php artisan db:seed --class=ProduceCatalogSeeder --force
+fi
+
 # Background work (Tuần 7): subscription deliveries and invoice emails run on the queue,
 # the scheduler expires batches at night and queues subscription deliveries each morning.
 su -s /bin/sh www-data -c "php artisan queue:work --sleep=3 --tries=3 --max-time=3600" &
