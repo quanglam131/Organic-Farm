@@ -1,8 +1,16 @@
-## Mô tả thay đổi
-- Chức năng thực hiện:
-- Nhánh đích: `develop`
+## Thay đổi
 
-## Checklist kiểm tra
-- [ ] Code tuân thủ chuẩn Tailwind CSS & Layout (`layouts.app`)
-- [ ] Không chứa file cấu hình nhạy cảm (`.env`, API key)
-- [ ] Đã kiểm tra giao diện không lỗi trên trình duyệt
+<!-- Tóm tắt ngắn: làm gì, vì sao. Liên kết yêu cầu tuần nếu có (vd. Tuần 5 – FEFO). -->
+
+## Loại thay đổi
+
+- [ ] feat: tính năng mới
+- [ ] fix: sửa lỗi
+- [ ] docs / test / chore / refactor
+
+## Kiểm tra
+
+- [ ] `php artisan test` trong `backend/` đều qua
+- [ ] `npm run build` trong `frontend/` chạy được
+- [ ] Không commit `.env`, khóa API hay mật khẩu
+- [ ] Đã thử trên giao diện di động (nếu đổi giao diện)
