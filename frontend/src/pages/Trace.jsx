@@ -12,9 +12,15 @@ export function TracePage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    let active = true;
     setData(null);
     setError('');
-    api(`/trace/${encodeURIComponent(code)}`).then(setData).catch((e) => setError(e.message));
+
+    api(`/trace/${encodeURIComponent(code)}`)
+      .then((result) => { if (active) setData(result); })
+      .catch((e) => { if (active) setError(e.message); });
+
+    return () => { active = false; };
   }, [code]);
 
   if (error) return <Notice kind="error">Không tìm thấy lô hàng với mã &quot;{code}&quot;. Kiểm tra lại mã trên bao bì.</Notice>;

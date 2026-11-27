@@ -11,11 +11,17 @@ import { goToPayment } from './Shop.jsx';
 
 export function OrdersPage() {
   const [orders, setOrders] = useState(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    api('/orders').then((d) => setOrders(d.data)).catch(() => setOrders([]));
+    let active = true;
+    api('/orders')
+      .then((d) => { if (active) setOrders(d.data); })
+      .catch((e) => { if (active) setError(e.message); });
+    return () => { active = false; };
   }, []);
 
+  if (error) return <Notice kind="error">{error}</Notice>;
   if (!orders) return <Loading />;
   if (orders.length === 0) return <Empty>Bạn chưa có đơn hàng nào. <Link to="/">Mua sắm ngay</Link></Empty>;
 
@@ -69,11 +75,20 @@ export function OrderPage() {
   const [error, setError] = useState('');
   const [busy, run] = useAction();
 
-  const load = () => api(`/orders/${code}`).then(setOrder).catch((e) => setError(e.message));
+  const load = () => {
+    setError('');
+    return api(`/orders/${code}`).then(setOrder).catch((e) => setError(e.message));
+  };
 
   useEffect(() => {
-    load();
-  }, [code]); // eslint-disable-line react-hooks/exhaustive-deps
+    let active = true;
+    setOrder(null);
+    setError('');
+    api(`/orders/${code}`)
+      .then((data) => { if (active) setOrder(data); })
+      .catch((e) => { if (active) setError(e.message); });
+    return () => { active = false; };
+  }, [code]);
 
   async function cancel() {
     if (!window.confirm('Bạn chắc chắn muốn hủy đơn này?')) return;
@@ -288,7 +303,11 @@ export function PointsPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api('/points').then(setData).catch((e) => setError(e.message));
+    let active = true;
+    api('/points')
+      .then((result) => { if (active) setData(result); })
+      .catch((e) => { if (active) setError(e.message); });
+    return () => { active = false; };
   }, []);
 
   if (error) return <Notice kind="error">{error}</Notice>;
@@ -349,13 +368,18 @@ export function SubscriptionsPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    let active = true;
+    setQuote(null);
+
     if (!planId || days.length === 0) {
-      setQuote(null);
-      return;
+      return () => { active = false; };
     }
+
     api('/subscriptions/quote', { method: 'POST', body: { subscription_plan_id: Number(planId), delivery_days: days } })
-      .then(setQuote)
-      .catch(() => setQuote(null));
+      .then((result) => { if (active) setQuote(result); })
+      .catch(() => { if (active) setQuote(null); });
+
+    return () => { active = false; };
   }, [planId, days]);
 
   const toggleDay = (d) => setDays((list) => {
@@ -465,9 +489,19 @@ export function SubscriptionsPage() {
 
 export function ComplaintsPage() {
   const [items, setItems] = useState(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    api('/complaints').then(setItems).catch(() => setItems([]));
+    let active = true;
+    api('/complaints')
+      .then((result) => { if (active) setItems(result); })
+      .catch((e) => {
+        if (active) {
+          setError(e.message);
+          setItems([]);
+        }
+      });
+    return () => { active = false; };
   }, []);
 
   return (
@@ -476,9 +510,10 @@ export function ComplaintsPage() {
       <Notice kind="info">
         Để gửi khiếu nại, mở <Link to="/orders">đơn hàng đã giao</Link> và dùng mục &quot;Gửi khiếu nại&quot; trong vòng 24 giờ sau khi nhận hàng (kèm ảnh .jpg/.png).
       </Notice>
-      {!items && <Loading />}
-      {items && items.length === 0 && <Empty>Bạn chưa gửi khiếu nại nào.</Empty>}
-      {items?.map((c) => (
+      {!items && !error && <Loading />}
+      {error && <Notice kind="error">{error}</Notice>}
+      {!error && items && items.length === 0 && <Empty>Bạn chưa gửi khiếu nại nào.</Empty>}
+      {!error && items?.map((c) => (
         <div className="card" key={c.id}>
           <strong>{c.subject}</strong>{' '}
           <Badge tone={c.status === 'resolved' ? 'green' : c.status === 'rejected' ? 'red' : 'blue'}>{COMPLAINT_STATUS[c.status]}</Badge>
