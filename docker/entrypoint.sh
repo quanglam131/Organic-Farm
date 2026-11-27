@@ -9,6 +9,13 @@ if [ -n "$PORT" ] && [ "$PORT" != "80" ]; then
   sed -ri "s/:80>/:${PORT}>/" /etc/apache2/sites-available/000-default.conf
 fi
 
+# SQLite on a persistent volume (e.g. Railway /data): create the file if missing, let www-data write it.
+if [ "$DB_CONNECTION" = "sqlite" ] && [ -n "$DB_DATABASE" ]; then
+  mkdir -p "$(dirname "$DB_DATABASE")"
+  [ -f "$DB_DATABASE" ] || touch "$DB_DATABASE"
+  chown -R www-data:www-data "$(dirname "$DB_DATABASE")"
+fi
+
 php artisan storage:link --force >/dev/null 2>&1 || true
 php artisan config:cache
 php artisan route:cache
