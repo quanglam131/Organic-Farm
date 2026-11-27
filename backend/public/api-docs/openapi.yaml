@@ -1,0 +1,810 @@
+openapi: 3.0.3
+info:
+  title: Nông trại Xanh Đà Lạt - Farm E-commerce API
+  version: 2.0.0
+  description: |
+    REST API for the single-farm e-commerce site (Đồ án 11). All responses are JSON.
+
+    **Error format (every endpoint):** failed requests return
+    `{"status": "error", "message": "..."}`. Validation errors also include `errors`
+    with one list of messages per field. Stock shortages (FEFO) return HTTP 422.
+
+    **Authentication:** log in with `POST /auth/login`, then send the token as
+    `Authorization: Bearer <token>`. Tokens expire (SANCTUM_EXPIRATION minutes); a 401 means
+    "log in again".
+
+    **Roles (back office under /admin):**
+    | Role | Can use |
+    |---|---|
+    | staff (farm staff) | farm plots, farming diary, batches, QR codes, waste, alerts (batches only) |
+    | sales (sales / care) | orders, complaints, subscription deliveries, alerts |
+    | admin | everything, plus reports, products, categories, staff accounts, settings |
+    Staff never see orders, customers or revenue; Sales never create batches or change stock.
+
+    **Order flow:** checkout re-reads prices and checks stock but takes nothing (status `pending`).
+    Stock is taken with FEFO when Sales confirms a COD order (`PATCH /admin/orders/{id}/status`
+    with `confirmed`) or when the online payment succeeds (VNPay IPN). Each order line then
+    records the batch it came from. If the batches cannot cover the order it becomes `stock_issue`.
+servers:
+  - url: http://127.0.0.1:8000/api
+    description: Local development (php artisan serve)
+tags:
+  - name: Auth
+  - name: Catalog
+  - name: Cart & Checkout
+  - name: Orders
+  - name: Admin - Products
+  - name: Admin - Batches (FEFO)
+  - name: Admin - Orders
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Error:
+      type: object
+      required: [status, message]
+      properties:
+        status:
+          type: string
+          enum: [error]
+          example: error
+        message:
+          type: string
+          example: Sản phẩm "Cà chua" không đủ hàng (thiếu 2 kg).
+        errors:
+          type: object
+          description: Only for validation errors (HTTP 422).
+          additionalProperties:
+            type: array
+            items:
+              type: string
+    Batch:
+      type: object
+      properties:
+        id: { type: integer, example: 12 }
+        product_id: { type: integer, example: 4 }
+        batch_code: { type: string, example: LO-261122-A1B2 }
+        trace_code: { type: string, example: TR3F9A1C7E20 }
+        quantity_received: { type: integer, example: 10 }
+        quantity_on_hand: { type: integer, example: 7 }
+        harvested_on: { type: string, format: date }
+        expires_on: { type: string, format: date }
+        status:
+          type: string
+          enum: [available, depleted, expired, written_off]
+    FefoPlanLine:
+      type: object
+      properties:
+        batch_id: { type: integer, example: 11 }
+        batch_code: { type: string, example: FEFO-A }
+        expires_on: { type: string, format: date, example: '2026-11-24' }
+        quantity: { type: integer, example: 3, description: kg taken from this batch }
+    Product:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: Xoài cát Hòa Lộc }
+        slug: { type: string, example: xoai-cat-hoa-loc }
+        unit: { type: string, example: kg }
+        price: { type: integer, example: 85000, description: VND }
+        image_url: { type: string, nullable: true, example: /storage/anh-san-pham/xoai-cat-hoa-loc.jpg }
+        is_active: { type: boolean }
+
+  responses:
+    Unauthorized:
+      description: Not logged in
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { status: error, message: Vui lòng đăng nhập để tiếp tục. }
+    Forbidden:
+      description: Logged in but not an administrator
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Invalid input (HTTP 422)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Create a customer account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, password_confirmation]
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                password_confirmation: { type: string }
+                phone: { type: string }
+                address: { type: string }
+      responses:
+        '201': { description: Account created with a token }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in and receive a Bearer token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, example: admin@farm.local }
+                password: { type: string }
+      responses:
+        '200': { description: Token and user }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /me:
+    get:
+      tags: [Auth]
+      summary: Current user
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: The logged-in user }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      tags: [Auth]
+      summary: Update profile (full replacement of name, phone, address)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                phone: { type: string }
+                address: { type: string }
+      responses:
+        '200': { description: Updated user }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /products:
+    get:
+      tags: [Catalog]
+      summary: List active products
+      parameters:
+        - { name: category, in: query, schema: { type: string }, description: Category slug }
+        - { name: q, in: query, schema: { type: string }, description: Search by name }
+      responses:
+        '200':
+          description: Paged list of products
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Product' }
+
+  /products/{slug}:
+    get:
+      tags: [Catalog]
+      summary: Product detail
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: The product with its images }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /categories:
+    get:
+      tags: [Catalog]
+      summary: List categories
+      responses:
+        '200': { description: Categories }
+
+  /trace/{traceCode}:
+    get:
+      tags: [Catalog]
+      summary: Traceability page data for a batch (the QR code points here)
+      parameters:
+        - { name: traceCode, in: path, required: true, schema: { type: string, example: TR3F9A1C7E20 } }
+      responses:
+        '200':
+          description: Product, farm plot, harvest and expiry dates, and farm diary entries
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /shipping/estimate:
+    get:
+      tags: [Cart & Checkout]
+      summary: Shipping fee from the farm to an address
+      description: |
+        The distance from the farm (config/farm.php) to `address` is looked up on the server:
+        Google Distance Matrix when GOOGLE_MAPS_API_KEY is set, otherwise OpenStreetMap geocoding
+        (straight line x 1.3). `distance_km` is used only when the address cannot be found.
+        Fee: 15,000 VND for the first 3 km + 5,000 VND/km; free from 300,000 VND.
+      parameters:
+        - { name: subtotal, in: query, required: true, schema: { type: integer }, description: VND }
+        - { name: address, in: query, schema: { type: string }, example: '12 Phan Đình Phùng, Đà Lạt' }
+        - { name: distance_km, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: Distance, where it came from, and the fee
+          content:
+            application/json:
+              example: { distance_km: 6, source: osm, shipping_fee: 30000, farm: { name: Nông trại Xanh Đà Lạt } }
+
+  /cart:
+    get:
+      tags: [Cart & Checkout]
+      summary: Current cart
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Cart lines and subtotal }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Cart & Checkout]
+      summary: Add a product to the cart
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id]
+              properties:
+                product_id: { type: integer }
+                quantity: { type: integer, minimum: 1, maximum: 100, default: 1 }
+      responses:
+        '200': { description: Updated cart }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /cart/{product}:
+    patch:
+      tags: [Cart & Checkout]
+      summary: Change the quantity of a cart line
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: product, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        '200': { description: Updated cart }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Cart & Checkout]
+      summary: Remove a line from the cart
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: product, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Updated cart }
+
+  /checkout:
+    post:
+      tags: [Cart & Checkout]
+      summary: Place an order from the cart (stock is taken FEFO)
+      description: |
+        Prices are re-read from the database (values sent by the browser are ignored) and every
+        line is checked against the valid batches. If one cannot be covered the checkout is
+        rejected and nothing is saved. The shipping distance is computed on the server from
+        shipping_address (distance_km is only a fallback). The order is created as `pending`;
+        stock is taken with FEFO when it is confirmed or paid.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [shipping_name, shipping_phone, shipping_address, payment_method]
+              properties:
+                shipping_name: { type: string }
+                shipping_phone: { type: string, example: '0912345678' }
+                shipping_address: { type: string }
+                payment_method: { type: string, enum: [cod, vnpay] }
+                points_to_use: { type: integer, minimum: 0 }
+                distance_km: { type: integer, minimum: 0, maximum: 200 }
+                note: { type: string }
+      responses:
+        '201': { description: Order created }
+        '422':
+          description: Not enough stock for a product, or other business rule
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { status: error, message: 'Sản phẩm "Cà chua" không đủ hàng (thiếu 2 kg).' }
+
+  /orders:
+    get:
+      tags: [Orders]
+      summary: My orders
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Orders }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /orders/{code}:
+    get:
+      tags: [Orders]
+      summary: One of my orders
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Order with items }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /orders/{code}/cancel:
+    post:
+      tags: [Orders]
+      summary: Cancel my order (stock is restored, used points are refunded)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Cancelled order }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/products:
+    get:
+      tags: [Admin - Products]
+      summary: List all products (including hidden)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Products }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin - Products]
+      summary: Create a product
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [name, unit, price]
+              properties:
+                category_id: { type: integer }
+                name: { type: string }
+                unit: { type: string, example: kg }
+                price: { type: integer, example: 45000 }
+                description: { type: string }
+                is_active: { type: boolean }
+                image: { type: string, format: binary }
+      responses:
+        '201': { description: Product created }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/products/{product}:
+    parameters:
+      - { name: product, in: path, required: true, schema: { type: integer } }
+    put:
+      tags: [Admin - Products]
+      summary: Replace a product's fields (PUT)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [name, unit, price], properties: { name: { type: string }, unit: { type: string }, price: { type: integer }, is_active: { type: boolean } } }
+      responses:
+        '200': { description: Updated product }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    patch:
+      tags: [Admin - Products]
+      summary: Change some of a product's fields (PATCH)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { price: { type: integer }, is_active: { type: boolean } } }
+      responses:
+        '200': { description: Updated product }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Admin - Products]
+      summary: Delete a product
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/products/{product}/batches:
+    parameters:
+      - { name: product, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [Admin - Batches (FEFO)]
+      summary: All batches of a product, earliest expiry first
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Batches
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Batch' } }
+    post:
+      tags: [Admin - Batches (FEFO)]
+      summary: Receive a new batch (lô) from a harvest
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity_received, harvested_on, expires_on]
+              properties:
+                farm_plot_id: { type: integer, nullable: true }
+                batch_code: { type: string }
+                quantity_received: { type: integer, minimum: 1, example: 10 }
+                harvested_on: { type: string, format: date, example: '2026-11-22' }
+                expires_on: { type: string, format: date, example: '2026-11-24' }
+      responses:
+        '201': { description: Batch created, content: { application/json: { schema: { $ref: '#/components/schemas/Batch' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/products/{product}/fefo-preview:
+    get:
+      tags: [Admin - Batches (FEFO)]
+      summary: Which batches FEFO would use for a quantity (does not change stock)
+      description: Use this to test the FEFO algorithm. Shortage returns HTTP 422 with the error format.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: product, in: path, required: true, schema: { type: integer } }
+        - { name: quantity, in: query, required: true, schema: { type: integer, minimum: 1 }, example: 10 }
+      responses:
+        '200':
+          description: The plan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  product: { type: string }
+                  plan:
+                    type: array
+                    items: { $ref: '#/components/schemas/FefoPlanLine' }
+              example:
+                product: Cà chua (dữ liệu test FEFO)
+                plan:
+                  - { batch_id: 1, batch_code: FEFO-A, expires_on: '2026-11-24', quantity: 3 }
+                  - { batch_id: 2, batch_code: FEFO-B, expires_on: '2026-12-01', quantity: 7 }
+        '422':
+          description: Not enough valid stock
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { status: error, message: 'Cà chua không đủ hàng (thiếu 2 kg).' }
+
+  /admin/batches/{batch}/waste:
+    post:
+      tags: [Admin - Batches (FEFO)]
+      summary: Record waste (xuất hủy) from a batch
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: batch, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity, reason]
+              properties:
+                quantity: { type: integer, minimum: 1 }
+                reason: { type: string, maxLength: 255 }
+      responses:
+        '200': { description: Updated batch }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/batches/expire-due:
+    post:
+      tags: [Admin - Batches (FEFO)]
+      summary: Mark every batch whose expiry date has arrived as expired
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Number of batches expired
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  expired_batches: { type: integer, example: 3 }
+
+  /admin/batches/{batch}/qr:
+    get:
+      tags: [Admin - Batches (FEFO)]
+      summary: QR code (SVG) that opens the batch's trace page
+      description: The QR encodes `{frontend_url}/trace/{trace_code}`. Open the SVG in a browser to print it.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: batch, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: QR code image
+          content:
+            image/svg+xml:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/orders:
+    get:
+      tags: [Admin - Orders]
+      summary: All orders
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Orders }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/orders/{order}/status:
+    patch:
+      tags: [Admin - Orders]
+      summary: Change an order's status
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: order, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [confirmed, shipping, delivered, cancelled]
+                  description: "`confirmed` takes the stock with FEFO and splits each line per batch; 422 + status stock_issue when short."
+      responses:
+        '200': { description: Updated order }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /farm:
+    get:
+      tags: [Catalog]
+      summary: The farm public profile (name, story, address, plots, certifications)
+      responses:
+        '200': { description: Farm profile }
+
+  /orders/{code}/reviews:
+    post:
+      tags: [Orders]
+      summary: Review a product of a delivered order
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, rating]
+              properties:
+                product_id: { type: integer }
+                rating: { type: integer, minimum: 1, maximum: 5 }
+                comment: { type: string }
+      responses:
+        '201': { description: Review saved }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /complaints:
+    post:
+      tags: [Orders]
+      summary: Complain about a delivered order (within 24 hours, photo required)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [order_code, reason, content, image]
+              properties:
+                order_code: { type: string }
+                reason: { type: string, enum: [damaged, spoiled, wrong_item, missing, other] }
+                content: { type: string }
+                image: { type: string, format: binary, description: '.jpg or .png, at most 5 MB' }
+      responses:
+        '201': { description: Complaint created }
+        '422':
+          description: Not delivered, more than 24 hours after delivery, or invalid photo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /subscriptions/quote:
+    post:
+      tags: [Orders]
+      summary: Price and delivery dates of a monthly plan for the chosen weekdays
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscription_plan_id, delivery_days]
+              properties:
+                subscription_plan_id: { type: integer }
+                delivery_days: { type: array, items: { type: integer, minimum: 0, maximum: 6 }, example: [2, 5], description: '0 = Sunday; 1 to 3 days' }
+      responses:
+        '200': { description: 'per_delivery, dates[], total' }
+
+  /subscriptions:
+    post:
+      tags: [Orders]
+      summary: Subscribe to a prepaid 28-day package; returns the payment URL
+      description: The package becomes active once the prepayment arrives. One delivery row is created per date; the day before each date a queued job creates and confirms the order (FEFO).
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscription_plan_id, delivery_days, shipping_name, shipping_phone, shipping_address]
+              properties:
+                subscription_plan_id: { type: integer }
+                delivery_days: { type: array, items: { type: integer }, example: [2, 5] }
+                shipping_name: { type: string }
+                shipping_phone: { type: string }
+                shipping_address: { type: string }
+      responses:
+        '201': { description: 'subscription (pending_payment) and payment_url' }
+
+  /admin/alerts:
+    get:
+      tags: [Admin - Batches (FEFO)]
+      summary: Red alerts (staff, sales, admin)
+      description: Batches within N days of expiry (N set by the admin). Sales also get stock_issue orders, short subscription deliveries and the open complaint count.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Alerts }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/batches:
+    get:
+      tags: [Admin - Batches (FEFO)]
+      summary: All batches for the staff dashboard (default status=available)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [available, depleted, expired, written_off] } }
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Paged batches }
+
+  /admin/farm-logs:
+    post:
+      tags: [Admin - Batches (FEFO)]
+      summary: Write a farming diary entry for a batch or a plot, with a photo or video (staff)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [type, description, logged_on]
+              properties:
+                product_batch_id: { type: integer }
+                farm_plot_id: { type: integer, description: required when no batch is given }
+                type: { type: string, enum: [planting, watering, fertilizing, pest_control, harvesting, other] }
+                description: { type: string }
+                logged_on: { type: string, format: date }
+                media: { type: string, format: binary }
+      responses:
+        '201': { description: Entry created (shown on the QR trace page of the batch) }
+
+  /admin/complaints/{complaint}:
+    patch:
+      tags: [Admin - Orders]
+      summary: Handle a complaint (sales)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: complaint, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [in_progress, resolved, rejected] }
+                resolution: { type: string, enum: [refund, redelivery], description: required when resolved }
+                admin_reply: { type: string, description: required when rejected }
+      responses:
+        '200': { description: Updated complaint }
+
+  /admin/delivery-schedules:
+    get:
+      tags: [Admin - Orders]
+      summary: Subscription deliveries in a date range (default next 7 days)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Deliveries }
+
+  /admin/delivery-schedules/{schedule}/retry:
+    post:
+      tags: [Admin - Orders]
+      summary: Retry a delivery that was short of stock
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: schedule, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Order created and confirmed }
+        '422': { description: Still not enough stock }
+
+  /admin/users:
+    post:
+      tags: [Admin - Orders]
+      summary: Create an employee account (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, role, password]
+              properties:
+                name: { type: string }
+                email: { type: string }
+                phone: { type: string }
+                role: { type: string, enum: [staff, sales, admin] }
+                password: { type: string, minLength: 8, description: stored with Bcrypt }
+      responses:
+        '201': { description: Account created }
+
+  /admin/settings:
+    get:
+      tags: [Admin - Orders]
+      summary: Current settings (admin)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: 'expiry_alert_days, flash_sale_discount_percent' }
+    put:
+      tags: [Admin - Orders]
+      summary: Change when Sales get the red near-expiry alert (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expiry_alert_days: { type: integer, minimum: 1, maximum: 14 }
+                flash_sale_discount_percent: { type: integer, minimum: 0, maximum: 90 }
+      responses:
+        '200': { description: Saved settings }
