@@ -1,0 +1,5 @@
+*
+!.gitignore
+# Product photos used by ProductPhotoSeeder are part of the project; uploads stay out of git.
+!anh-san-pham/
+!anh-san-pham/**

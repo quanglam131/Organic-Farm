@@ -1,0 +1,768 @@
+{
+    "info": {
+        "name": "Farm E-commerce API (Tuần 5)",
+        "_postman_id": "6f1c2a10-5b7e-4c33-9a8d-0a0a05f00d05",
+        "description": "Kịch bản kiểm thử API và thuật toán FEFO.\n\nChạy theo thứ tự thư mục từ trên xuống. Trước khi chạy: `php artisan migrate --seed` (hoặc `php artisan db:seed --class=FefoTestSeeder`).\n\nTài khoản: admin@farm.local / password, khach@farm.local / password.",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://127.0.0.1:8000/api"
+        },
+        {
+            "key": "token",
+            "value": ""
+        },
+        {
+            "key": "customerToken",
+            "value": ""
+        },
+        {
+            "key": "productId",
+            "value": ""
+        },
+        {
+            "key": "batchId",
+            "value": ""
+        },
+        {
+            "key": "traceCode",
+            "value": ""
+        }
+    ],
+    "auth": {
+        "type": "bearer",
+        "bearer": [
+            {
+                "key": "token",
+                "value": "{{token}}",
+                "type": "string"
+            }
+        ]
+    },
+    "item": [
+        {
+            "name": "1. Đăng nhập",
+            "description": "Lấy token cho quản trị viên và khách hàng.",
+            "item": [
+                {
+                    "name": "Đăng nhập quản trị",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/auth/login",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "auth",
+                                "login"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"email\": \"admin@farm.local\",\n    \"password\": \"password\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Đăng nhập thành công (200)', () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set('token', pm.response.json().token);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Đăng nhập khách hàng",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/auth/login",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "auth",
+                                "login"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"email\": \"khach@farm.local\",\n    \"password\": \"password\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Đăng nhập thành công (200)', () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set('customerToken', pm.response.json().token);"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "2. Lô hàng & FEFO",
+            "description": "Thuật toán FEFO: lấy hàng từ lô hết hạn sớm nhất trước. Sản phẩm test có lô A 3 kg (2 ngày), B 7 kg (9 ngày), C đã hết hạn, D hết hàng.",
+            "item": [
+                {
+                    "name": "Tìm sản phẩm test FEFO",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/admin/products?0=page%3D1",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "admin",
+                                "products"
+                            ],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Có danh sách sản phẩm (200)', () => pm.response.to.have.status(200));",
+                                    "const p = pm.response.json().data.find(x => x.slug === 'ca-chua-fefo-test');",
+                                    "pm.test('Tìm thấy sản phẩm test FEFO', () => pm.expect(p).to.not.be.undefined);",
+                                    "pm.collectionVariables.set('productId', p.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Danh sách lô của sản phẩm (sắp xếp theo hạn)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/admin/products/{{productId}}/batches",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "admin",
+                                "products",
+                                "{{productId}}",
+                                "batches"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Trả về các lô (200)', () => pm.response.to.have.status(200));",
+                                    "const lots = pm.response.json();",
+                                    "const a = lots.find(l => l.batch_code === 'FEFO-A');",
+                                    "pm.collectionVariables.set('batchId', a.id);",
+                                    "pm.collectionVariables.set('traceCode', a.trace_code);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "FEFO: mua 10 kg → 3 kg lô A + 7 kg lô B",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/admin/products/{{productId}}/fefo-preview?0=quantity%3D10",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "admin",
+                                "products",
+                                "{{productId}}",
+                                "fefo-preview"
+                            ],
+                            "query": [
+                                {
+                                    "key": "quantity",
+                                    "value": "10"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Có kế hoạch lấy hàng (200)', () => pm.response.to.have.status(200));",
+                                    "const plan = pm.response.json().plan;",
+                                    "pm.test('Lấy từ đúng 2 lô', () => pm.expect(plan.length).to.eql(2));",
+                                    "pm.test('Lô A (hết hạn sớm nhất) lấy 3 kg trước', () => { pm.expect(plan[0].batch_code).to.eql('FEFO-A'); pm.expect(plan[0].quantity).to.eql(3); });",
+                                    "pm.test('Lô B lấy phần còn lại 7 kg', () => { pm.expect(plan[1].batch_code).to.eql('FEFO-B'); pm.expect(plan[1].quantity).to.eql(7); });",
+                                    "pm.test('Không dùng lô đã hết hạn (C) hay hết hàng (D)', () => pm.expect(plan.map(p => p.batch_code)).to.not.include.members(['FEFO-C', 'FEFO-D']));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "FEFO: mua 11 kg → thiếu hàng, bị từ chối (422)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/admin/products/{{productId}}/fefo-preview?0=quantity%3D11",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "admin",
+                                "products",
+                                "{{productId}}",
+                                "fefo-preview"
+                            ],
+                            "query": [
+                                {
+                                    "key": "quantity",
+                                    "value": "11"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Từ chối với mã 422', () => pm.response.to.have.status(422));",
+                                    "pm.test('Đúng định dạng lỗi chuẩn', () => { const b = pm.response.json(); pm.expect(b.status).to.eql('error'); pm.expect(b.message).to.include('thiếu 1 kg'); });"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Tạo mã QR cho lô (SVG)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/admin/batches/{{batchId}}/qr",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "admin",
+                                "batches",
+                                "{{batchId}}",
+                                "qr"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Trả về ảnh SVG (200)', () => pm.response.to.have.status(200));",
+                                    "pm.test('Content-Type là image/svg+xml', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('image/svg+xml'));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Hủy các lô đã đến hạn (expire-due)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/admin/batches/expire-due",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "admin",
+                                "batches",
+                                "expire-due"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Chạy thành công (200)', () => pm.response.to.have.status(200));",
+                                    "pm.test('Có trả về số lô đã hết hạn', () => pm.expect(pm.response.json()).to.have.property('expired_batches'));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "3. Truy xuất nguồn gốc",
+            "description": "Trang công khai mà mã QR trỏ tới.",
+            "item": [
+                {
+                    "name": "Xem truy xuất theo mã lô",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/trace/{{traceCode}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "trace",
+                                "{{traceCode}}"
+                            ]
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Tìm thấy lô (200)', () => pm.response.to.have.status(200));",
+                                    "pm.test('Có thông tin sản phẩm và ngày hết hạn', () => { const b = pm.response.json(); pm.expect(b.product).to.have.property('name'); pm.expect(b.expires_on).to.be.a('string'); });"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "4. Giỏ hàng & thanh toán",
+            "description": "Khách hàng đặt hàng. Thiếu hàng theo FEFO thì bị từ chối và không trừ kho.",
+            "item": [
+                {
+                    "name": "Thêm 11 kg vào giỏ",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/cart",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "cart"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"product_id\": {{productId}},\n    \"quantity\": 11\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{customerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Thêm vào giỏ thành công (200)', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Đặt hàng khi thiếu hàng → bị từ chối (422)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/checkout",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "checkout"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"shipping_name\": \"Khách test\",\n    \"shipping_phone\": \"0912345678\",\n    \"shipping_address\": \"12 Nguyễn Trãi, Đà Lạt\",\n    \"payment_method\": \"cod\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{customerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Từ chối đơn hàng (422)', () => pm.response.to.have.status(422));",
+                                    "pm.test('Trả về lỗi chuẩn', () => { const b = pm.response.json(); pm.expect(b.status).to.eql('error'); pm.expect(b.message).to.include('không đủ hàng'); });"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "5. Lỗi chuẩn & phân quyền",
+            "description": "Mọi lỗi API đều trả về {\"status\": \"error\", \"message\": \"...\"}.",
+            "item": [
+                {
+                    "name": "Sản phẩm không tồn tại → 404",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/products/khong-co-san-pham",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "products",
+                                "khong-co-san-pham"
+                            ]
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Mã 404', () => pm.response.to.have.status(404));",
+                                    "pm.test('Có status=error và message', () => { const b = pm.response.json(); pm.expect(b.status).to.eql('error'); pm.expect(b.message).to.be.a('string'); });"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Chưa đăng nhập → 401",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/me",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "me"
+                            ]
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Mã 401', () => pm.response.to.have.status(401));",
+                                    "pm.test('Có status=error', () => pm.expect(pm.response.json().status).to.eql('error'));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Khách hàng gọi API quản trị → 403",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/admin/orders",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "admin",
+                                "orders"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{customerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Mã 403', () => pm.response.to.have.status(403));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Dữ liệu sai khi tạo lô → 422 kèm danh sách lỗi",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/admin/products/{{productId}}/batches",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "admin",
+                                "products",
+                                "{{productId}}",
+                                "batches"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "[]",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Mã 422', () => pm.response.to.have.status(422));",
+                                    "pm.test('Có errors theo từng trường', () => { const b = pm.response.json(); pm.expect(b.errors).to.have.property('quantity_received'); });"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "6. Đơn hàng (quản trị)",
+            "description": "Cập nhật trạng thái đơn hàng bằng PATCH.",
+            "item": [
+                {
+                    "name": "Danh sách đơn hàng",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/admin/orders",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "admin",
+                                "orders"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Mã 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
