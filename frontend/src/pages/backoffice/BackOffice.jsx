@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, dateVN, hasRole, money, ROLE_LABEL } from '../../api.js';
 import { useAuth } from '../../auth.jsx';
-import { Badge, Button, Empty, Loading, useAction } from '../../ui.jsx';
+import { Badge, Button, Empty, Loading, Notice, useAction } from '../../ui.jsx';
 import { BatchesTab, DiaryTab } from './FarmTabs.jsx';
 import { ComplaintsTab, DeliveriesTab, OrdersTab } from './SalesTabs.jsx';
 import { CatalogTab, DashboardTab, PlansTab, ProductsTab, SettingsTab, UsersTab } from './AdminTabs.jsx';
@@ -66,10 +66,16 @@ export function BackOfficePage() {
 function AlertsTab({ goTo }) {
   const { user } = useAuth();
   const [alerts, setAlerts] = useState(null);
+  const [error, setError] = useState('');
   const [busy, run] = useAction();
   const isSales = hasRole(user, 'sales');
 
-  const load = () => api('/admin/alerts').then(setAlerts).catch(() => setAlerts({ expiring_batches: [] }));
+  const load = () => {
+    setError('');
+    api('/admin/alerts')
+      .then(setAlerts)
+      .catch((e) => setError(e.message || 'Không thể tải dữ liệu cảnh báo.'));
+  };
 
   useEffect(() => {
     load();
@@ -80,6 +86,7 @@ function AlertsTab({ goTo }) {
     if (res) load();
   }
 
+  if (error) return <div><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Thử tải lại</Button></div>;
   if (!alerts) return <Loading />;
 
   return (
