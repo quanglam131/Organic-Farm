@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { api, BATCH_STATUS, dateVN, FARM_TYPES, formData, today } from '../../api.js';
 import { compressFormImages } from '../../media.js';
-import { Badge, Button, Empty, Loading, Modal, useAction } from '../../ui.jsx';
+import { Badge, Button, Empty, Loading, Modal, Notice, useAction } from '../../ui.jsx';
 import { Timeline } from '../Shop.jsx';
 
 const daysLeft = (date) => Math.round((new Date(String(date).slice(0, 10)) - new Date(today())) / 86400000);
@@ -13,6 +13,7 @@ export function BatchesTab() {
   const [status, setStatus] = useState('available');
   const [q, setQ] = useState('');
   const [batches, setBatches] = useState(null);
+  const [error, setError] = useState('');
   const [wasteFor, setWasteFor] = useState(null);
   const [qrFor, setQrFor] = useState(null);
   const [showNew, setShowNew] = useState(false);
@@ -21,7 +22,10 @@ export function BatchesTab() {
 
   const load = () => {
     const params = new URLSearchParams({ status, q });
-    api(`/admin/batches?${params}`).then((d) => setBatches(d.data)).catch(() => setBatches([]));
+    setError('');
+    api(`/admin/batches?${params}`)
+      .then((d) => setBatches(d.data))
+      .catch((e) => setError(e.message || 'Không thể tải danh sách lô hàng.'));
   };
 
   async function expireDue() {
@@ -35,6 +39,7 @@ export function BatchesTab() {
 
   return (
     <div>
+      {error && <><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Tải lại lô hàng</Button></>}
       <div className="toolbar">
         <form className="row grow" onSubmit={(e) => { e.preventDefault(); load(); }}>
           <input placeholder="Tìm theo tên sản phẩm" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -146,14 +151,25 @@ function QrModal({ batch, onClose }) {
 function NewBatchModal({ onClose, onDone }) {
   const [products, setProducts] = useState([]);
   const [plots, setPlots] = useState([]);
+  const [error, setError] = useState('');
   const [busy, run] = useAction();
   const [productId, setProductId] = useState('');
   const [fefo, setFefo] = useState(null);
 
-  useEffect(() => {
-    api('/admin/products?per_page=100').then((d) => setProducts(d.data)).catch(() => {});
-    api('/admin/farm-plots').then(setPlots).catch(() => {});
-  }, []);
+  const loadOptions = () => {
+    setError('');
+    Promise.all([
+      api('/admin/products?per_page=100'),
+      api('/admin/farm-plots'),
+    ])
+      .then(([productData, plotData]) => {
+        setProducts(productData.data);
+        setPlots(plotData);
+      })
+      .catch((e) => setError(e.message || 'Không thể tải sản phẩm và khu canh tác.'));
+  };
+
+  useEffect(() => { loadOptions(); }, []);
 
   async function submit(e) {
     e.preventDefault();
@@ -179,6 +195,7 @@ function NewBatchModal({ onClose, onDone }) {
 
   return (
     <Modal title="Nhập lô thu hoạch mới" onClose={onClose}>
+      {error && <><Notice kind="error">{error}</Notice><Button className="secondary" onClick={loadOptions}>Tải lại dữ liệu</Button></>}
       <form onSubmit={submit}>
         <label>
           Sản phẩm
@@ -225,15 +242,25 @@ export function DiaryTab() {
   const [batches, setBatches] = useState([]);
   const [logs, setLogs] = useState(null);
   const [target, setTarget] = useState('batch');
+  const [error, setError] = useState('');
   const [busy, run] = useAction();
 
-  const loadLogs = () => api('/admin/farm-logs').then((d) => setLogs(d.data)).catch(() => setLogs([]));
+  const load = () => {
+    setError('');
+    Promise.all([
+      api('/admin/farm-plots'),
+      api('/admin/batches?status=available'),
+      api('/admin/farm-logs'),
+    ])
+      .then(([plotData, batchData, logData]) => {
+        setPlots(plotData);
+        setBatches(batchData.data);
+        setLogs(logData.data);
+      })
+      .catch((e) => setError(e.message || 'Không thể tải dữ liệu nhật ký canh tác.'));
+  };
 
-  useEffect(() => {
-    api('/admin/farm-plots').then(setPlots).catch(() => {});
-    api('/admin/batches?status=available').then((d) => setBatches(d.data)).catch(() => {});
-    loadLogs();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   async function submit(e) {
     e.preventDefault();
@@ -256,7 +283,9 @@ export function DiaryTab() {
   }
 
   return (
-    <div className="two-col">
+    <div>
+      {error && <><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Tải lại dữ liệu nhật ký</Button></>}
+      <div className="two-col">
       <form className="card" onSubmit={submit}>
         <h2>Ghi nhật ký canh tác</h2>
         <div className="choice-group">
@@ -316,6 +345,7 @@ export function DiaryTab() {
             )}
           </>
         )}
+      </div>
       </div>
     </div>
   );

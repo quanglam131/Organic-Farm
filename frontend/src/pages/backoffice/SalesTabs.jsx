@@ -3,7 +3,7 @@ import {
   api, COMPLAINT_REASONS, COMPLAINT_STATUS, dateTimeVN, dateVN, money, ORDER_STATUS, PAYMENT_LABEL, PAYMENT_STATUS,
   RESOLUTION_LABEL, SCHEDULE_STATUS,
 } from '../../api.js';
-import { Badge, Button, Empty, Loading, StatusBadge, useAction } from '../../ui.jsx';
+import { Badge, Button, Empty, Loading, Notice, StatusBadge, useAction } from '../../ui.jsx';
 
 /* ---------- Orders: confirm (takes stock with FEFO), ship, deliver, cancel ---------- */
 
@@ -19,15 +19,19 @@ export function OrdersTab() {
   const [todayOnly, setTodayOnly] = useState(false);
   const [q, setQ] = useState('');
   const [orders, setOrders] = useState(null);
+  const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [, run] = useAction();
 
   const load = () => {
+    setError('');
     const params = new URLSearchParams();
     if (status) params.set('status', status);
     if (todayOnly) params.set('today', '1');
     if (q) params.set('q', q);
-    api(`/admin/orders?${params}`).then((d) => setOrders(d.data)).catch(() => setOrders([]));
+    api(`/admin/orders?${params}`)
+      .then((d) => setOrders(d.data))
+      .catch((e) => setError(e.message || 'Không thể tải danh sách đơn hàng.'));
   };
 
   useEffect(() => {
@@ -59,7 +63,8 @@ export function OrdersTab() {
         </form>
       </div>
 
-      {!orders && <Loading />}
+      {error && <><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Tải lại đơn hàng</Button></>}
+      {!orders && !error && <Loading />}
       {orders && orders.length === 0 && <Empty>Không có đơn nào.</Empty>}
       <div className="order-cards">
         {orders?.map((o) => (
@@ -102,8 +107,14 @@ export function OrdersTab() {
 export function ComplaintsTab() {
   const [status, setStatus] = useState('open');
   const [items, setItems] = useState(null);
+  const [error, setError] = useState('');
 
-  const load = () => api(`/admin/complaints${status ? `?status=${status}` : ''}`).then((d) => setItems(d.data)).catch(() => setItems([]));
+  const load = () => {
+    setError('');
+    api(`/admin/complaints${status ? `?status=${status}` : ''}`)
+      .then((d) => setItems(d.data))
+      .catch((e) => setError(e.message || 'Không thể tải danh sách khiếu nại.'));
+  };
 
   useEffect(() => {
     load();
@@ -117,7 +128,8 @@ export function ComplaintsTab() {
           {Object.entries(COMPLAINT_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
       </div>
-      {!items && <Loading />}
+      {error && <><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Tải lại khiếu nại</Button></>}
+      {!items && !error && <Loading />}
       {items && items.length === 0 && <Empty>Không có khiếu nại.</Empty>}
       {items?.map((c) => <ComplaintCard key={c.id} complaint={c} onSaved={load} />)}
     </div>
@@ -178,9 +190,15 @@ function ComplaintCard({ complaint: c, onSaved }) {
 
 export function DeliveriesTab() {
   const [rows, setRows] = useState(null);
+  const [error, setError] = useState('');
   const [busy, run] = useAction();
 
-  const load = () => api('/admin/delivery-schedules').then(setRows).catch(() => setRows([]));
+  const load = () => {
+    setError('');
+    api('/admin/delivery-schedules')
+      .then(setRows)
+      .catch((e) => setError(e.message || 'Không thể tải lịch giao hàng.'));
+  };
 
   useEffect(() => {
     load();
@@ -191,6 +209,7 @@ export function DeliveriesTab() {
     if (res) load();
   }
 
+  if (error) return <div><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Tải lại lịch giao</Button></div>;
   if (!rows) return <Loading />;
 
   const byDate = rows.reduce((acc, r) => {

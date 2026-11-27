@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, formData, money, ROLE_LABEL } from '../../api.js';
 import { useAuth } from '../../auth.jsx';
 import { compressFormImages, compressImage } from '../../media.js';
-import { Badge, Button, Empty, Loading, Modal, Stat, useAction } from '../../ui.jsx';
+import { Badge, Button, Empty, Loading, Modal, Notice, Stat, useAction } from '../../ui.jsx';
 
 /* ---------- Reports (admin only: Staff must never see revenue) ---------- */
 
@@ -10,13 +10,26 @@ export function DashboardTab() {
   const [summary, setSummary] = useState(null);
   const [revenue, setRevenue] = useState(null);
   const [waste, setWaste] = useState([]);
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    api('/admin/dashboard').then(setSummary).catch(() => {});
-    api('/admin/reports/revenue?months=6').then(setRevenue).catch(() => {});
-    api('/admin/reports/waste').then(setWaste).catch(() => {});
-  }, []);
+  const load = () => {
+    setError('');
+    Promise.all([
+      api('/admin/dashboard'),
+      api('/admin/reports/revenue?months=6'),
+      api('/admin/reports/waste'),
+    ])
+      .then(([dashboardData, revenueData, wasteData]) => {
+        setSummary(dashboardData);
+        setRevenue(revenueData);
+        setWaste(wasteData);
+      })
+      .catch((e) => setError(e.message || 'Không thể tải báo cáo.'));
+  };
 
+  useEffect(() => { load(); }, []);
+
+  if (error) return <div><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Thử tải lại</Button></div>;
   if (!summary || !revenue) return <Loading />;
 
   const maxRevenue = Math.max(1, ...revenue.months.map((m) => m.revenue));
@@ -74,14 +87,22 @@ export function DashboardTab() {
 export function ProductsTab() {
   const [products, setProducts] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [error, setError] = useState('');
   const [imagesFor, setImagesFor] = useState(null);
   const [busy, run] = useAction();
 
-  const load = () => api('/admin/products?per_page=100').then((d) => setProducts(d.data)).catch(() => setProducts([]));
+  const load = () => {
+    setError('');
+    api('/admin/products?per_page=100')
+      .then((d) => setProducts(d.data))
+      .catch((e) => setError(e.message || 'Không thể tải danh sách sản phẩm.'));
+  };
 
   useEffect(() => {
     load();
-    api('/admin/categories').then(setCategories).catch(() => {});
+    api('/admin/categories')
+      .then(setCategories)
+      .catch((e) => setError(e.message || 'Không thể tải danh mục sản phẩm.'));
   }, []);
 
   async function create(e) {
@@ -114,6 +135,7 @@ export function ProductsTab() {
 
   return (
     <div>
+      {error && <><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Tải lại sản phẩm</Button></>}
       <form className="card" onSubmit={create}>
         <h2>Thêm sản phẩm</h2>
         <div className="row">
@@ -166,9 +188,15 @@ export function ProductsTab() {
 /** Photos of one product: upload, add by URL, choose the main photo, reorder, delete. */
 function ImageManager({ product, onClose }) {
   const [images, setImages] = useState(null);
+  const [error, setError] = useState('');
   const [busy, run] = useAction();
 
-  const load = () => api(`/admin/products/${product.id}/images`).then(setImages).catch(() => setImages([]));
+  const load = () => {
+    setError('');
+    api(`/admin/products/${product.id}/images`)
+      .then(setImages)
+      .catch((e) => setError(e.message || 'Không thể tải ảnh sản phẩm.'));
+  };
 
   useEffect(() => {
     load();
@@ -205,6 +233,7 @@ function ImageManager({ product, onClose }) {
 
   return (
     <Modal title={`Ảnh – ${product.name}`} onClose={onClose}>
+      {error && <><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Tải lại ảnh</Button></>}
       {!images ? <Loading /> : images.length === 0 ? <Empty>Chưa có ảnh.</Empty> : (
         <div className="image-grid">
           {images.map((img, i) => (
@@ -235,11 +264,17 @@ function ImageManager({ product, onClose }) {
 export function CatalogTab() {
   const [categories, setCategories] = useState([]);
   const [plots, setPlots] = useState([]);
+  const [error, setError] = useState('');
   const [busy, run] = useAction();
 
   const load = () => {
-    api('/admin/categories').then(setCategories).catch(() => {});
-    api('/admin/farm-plots').then(setPlots).catch(() => {});
+    setError('');
+    Promise.all([api('/admin/categories'), api('/admin/farm-plots')])
+      .then(([categoryData, plotData]) => {
+        setCategories(categoryData);
+        setPlots(plotData);
+      })
+      .catch((e) => setError(e.message || 'Không thể tải danh mục và khu canh tác.'));
   };
 
   useEffect(load, []);
@@ -267,7 +302,9 @@ export function CatalogTab() {
   }
 
   return (
-    <div className="two-col">
+    <div>
+      {error && <><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Tải lại danh mục và khu canh tác</Button></>}
+      <div className="two-col">
       <div className="card">
         <h2>Danh mục</h2>
         <form className="row" onSubmit={addCategory}>
@@ -296,6 +333,7 @@ export function CatalogTab() {
         </form>
         <ul className="small">{plots.map((p) => <li key={p.id}>{p.code} · {p.name} ({p.logs_count} nhật ký)</li>)}</ul>
       </div>
+      </div>
     </div>
   );
 }
@@ -303,17 +341,29 @@ export function CatalogTab() {
 /* ---------- Subscription plans ---------- */
 
 export function PlansTab() {
-  const [plans, setPlans] = useState([]);
-  const [products, setProducts] = useState([]);
+  const [plans, setPlans] = useState(null);
+  const [products, setProducts] = useState(null);
   const [quantities, setQuantities] = useState({});
+  const [error, setError] = useState('');
   const [busy, run] = useAction();
 
-  const load = () => api('/admin/subscription-plans').then(setPlans).catch(() => {});
+  const load = () => {
+    setError('');
+    Promise.all([
+      api('/admin/subscription-plans'),
+      api('/admin/products?per_page=100'),
+    ])
+      .then(([planData, productData]) => {
+        setPlans(planData);
+        setProducts(productData.data.filter((p) => p.is_active));
+      })
+      .catch((e) => setError(e.message || 'Không thể tải dữ liệu gói định kỳ.'));
+  };
 
-  useEffect(() => {
-    load();
-    api('/admin/products?per_page=100').then((d) => setProducts(d.data.filter((p) => p.is_active))).catch(() => {});
-  }, []);
+  useEffect(() => { load(); }, []);
+
+  if (error) return <div><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Tải lại gói định kỳ</Button></div>;
+  if (!plans || !products) return <Loading />;
 
   async function create(e) {
     e.preventDefault();
@@ -386,12 +436,16 @@ export function UsersTab() {
   const [role, setRole] = useState('');
   const [q, setQ] = useState('');
   const [users, setUsers] = useState(null);
+  const [error, setError] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [busy, run] = useAction();
 
   const load = () => {
+    setError('');
     const params = new URLSearchParams({ q, role });
-    api(`/admin/users?${params}`).then((d) => setUsers(d.data)).catch(() => setUsers([]));
+    api(`/admin/users?${params}`)
+      .then((d) => setUsers(d.data))
+      .catch((e) => setError(e.message || 'Không thể tải danh sách tài khoản.'));
   };
 
   useEffect(() => {
@@ -427,7 +481,8 @@ export function UsersTab() {
         <button onClick={() => setShowNew(true)}>+ Thêm nhân viên</button>
       </div>
 
-      {!users ? <Loading /> : (
+      {error && <><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Tải lại tài khoản</Button></>}
+      {!users && !error ? <Loading /> : users && (
         <div className="table-wrap">
           <table className="table">
             <thead><tr><th>Tên</th><th>Email</th><th>Vai trò</th><th>Điểm</th><th>Trạng thái</th></tr></thead>
@@ -483,11 +538,17 @@ export function UsersTab() {
 
 export function SettingsTab() {
   const [settings, setSettings] = useState(null);
+  const [error, setError] = useState('');
   const [busy, run] = useAction();
 
-  useEffect(() => {
-    api('/admin/settings').then(setSettings).catch(() => {});
-  }, []);
+  const load = () => {
+    setError('');
+    api('/admin/settings')
+      .then(setSettings)
+      .catch((e) => setError(e.message || 'Không thể tải cấu hình.'));
+  };
+
+  useEffect(() => { load(); }, []);
 
   async function save(e) {
     e.preventDefault();
@@ -501,6 +562,7 @@ export function SettingsTab() {
     if (res) setSettings(res);
   }
 
+  if (error) return <div><Notice kind="error">{error}</Notice><Button className="secondary" onClick={load}>Tải lại cấu hình</Button></div>;
   if (!settings) return <Loading />;
 
   return (
